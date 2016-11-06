@@ -1,0 +1,123 @@
+#! /bin/sh
+
+set -e
+
+ASIZE=640000
+COMPLEVEL=0
+MEMORY=256
+NORAR=0
+OUTDIR=$PWD
+PARTMAX=80
+REDUNDANCY=5
+THREADS=
+STRIPEXT=0
+
+die() {
+    [ -n "$1" ] && echo >&2 "$1"
+    cat >&2 << EOF 
+usage: $(basename "$0") [OPTIONS] PATH [PATH]...
+available options:
+  -a SIZE    article size, bytes (default: 640000)
+  -c LEVEL   rar compression level, 0 to 5 (default: 0)
+  -m MEMORY  memory to use, MB (default: 256)
+  -n         do not create rar archives
+  -o PATH    output directory (default: \$PWD)
+  -p PARTS   maximum number of rar archives to create (default: 80)
+  -r LEVEL   redundancy level, percent (default: 5)
+  -t         use multiple threads (for par2cmdline-tbb)
+  -x         strip input file extension from archive name
+EOF
+    exit 1
+}
+
+yesno() {
+    read -p "$1" which
+    case $which in
+        [Yy] ) return ;;
+        * )    exit ;;
+    esac
+}
+
+findbin() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+rarsize() {
+    out=524288000
+    total=$(($(du -k "$1" | cut -f1) * 1024)) # du -b is a GNU extension
+    for i in 20971520 52428800 104857600 209715200; do
+        [ $(($total / $PARTMAX)) -gt $i ] && continue
+        out=$i
+        break
+    done
+    [ $out -gt $ASIZE ] && echo $(($out - $(($out % $ASIZE)))) || echo $out
+}
+
+checkuint() {
+    [ "$1" -ge 0 2>/dev/null ] || die "invalid argument to -$2: $1"
+}
+
+while getopts ":a:c:m:no:p:r:tx" opt; do
+    case $opt in
+        a)
+            checkuint "$OPTARG" $opt
+            ASIZE="$OPTARG"
+            ;;
+        c)
+            checkuint "$OPTARG" $opt
+            COMPLEVEL="$OPTARG"
+            ;;
+        m)
+            checkuint "$OPTARG" $opt
+            MEMORY="$OPTARG"
+            ;;
+        n)
+            NORAR=1
+            ;;
+        o)
+            [ -d "$OPTARG" ] || die "no such directory: $OPTARG"
+            OUTDIR="$OPTARG"
+            ;;
+        p)
+            checkuint "$OPTARG" $opt
+            PARTMAX="$OPTARG"
+            ;;
+        r)
+            checkuint "$OPTARG" $opt
+            REDUNDANCY="$OPTARG"
+            ;;
+        t)
+            THREADS="-t+"
+            ;;
+        x)
+            STRIPEXT=1
+            ;;
+        \?)
+            die "invalid option: -$opt"
+            ;;
+    esac
+done
+
+shift $((OPTIND - 1))
+[ "$#" -eq 0 ] && die "No input files specified"
+
+findbin "par2"    && PAR2="par2 c -m$MEMORY $THREADS -s$ASIZE -r$REDUNDANCY"
+findbin "par2j"   && PAR2="par2j c -rd2 -d. -m$MEMORY -sm$ASIZE -rr$REDUNDANCY" 
+findbin "par2j64" && PAR2="par2j64 c -rd2 -d. -m$MEMORY -sm$ASIZE -rr$REDUNDANCY" 
+[ -z "$PAR2" ] && die "par2 not found"
+
+for path; do
+    PARTSIZE=$(rarsize "$path")
+    NAME=$(basename "$path")
+    [ $STRIPEXT -gt 0 ] && [ -f "$path" ] && NAME=${NAME%.*}
+    DESTDIR="$OUTDIR/$NAME"
+    [ -d "$DESTDIR" ] && yesno "Directory $DESTDIR exists, delete it? [y/N] " 
+    rm -rf "$DESTDIR"
+    mkdir -p "$DESTDIR"
+    if [ $NORAR -eq 0 ]; then
+        rar a -r -ep1 -v${PARTSIZE}b -m$COMPLEVEL "$DESTDIR/$NAME.rar" "$path"
+        $PAR2 "$DESTDIR/$NAME.par2" "$DESTDIR/"*.rar
+    else
+        $PAR2 "$DESTDIR/$NAME.par2" "$path/"*
+    fi
+done

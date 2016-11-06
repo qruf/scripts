@@ -1,0 +1,12 @@
+#! /bin/sh
+
+set -e
+
+make config
+INSTALL=$(make build-depends-list | cut -d/ -f4,5)
+pkg install $INSTALL
+make install clean
+
+# UNINSTALL=$({ echo $INSTALL; make run-depends-list | cut -d/ -f4,5 } | sort | uniq -u)
+# pkg remove $UNINSTALL
+

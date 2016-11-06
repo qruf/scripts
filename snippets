@@ -1,0 +1,43 @@
+colour() {
+    echo -ne "\e[${1}m${2}\e[0m"
+}
+
+xcolour() {
+    echo -ne "\e[38;5;${1}m${2}\e[0m"
+}
+
+checkvideo() {
+    for f; do 
+        echo -n "$(basename "$f")..."
+        ffmpeg -v quiet -xerror -i "$f" -f null - && echo OK || echo $(colour 31 FAILED)
+    done
+}
+
+extractsub() {
+    for f; do
+        local dir="${f%.*}"
+        mkdir "$dir" && bsdtar xf -C "$dir" "$f"
+    done
+}
+
+paste() {
+    local inp="<-"
+    if [ ! -z "$1" ]; then
+        [ ! -f "$1" ] && echo "File not found: $1" && return 1
+        inp="@$1"
+    fi
+    curl -F "text=$inp" http://vpaste.net
+}
+
+pastecmd() {
+    (echo "$ $@"; eval "$@") | paste
+}
+
+remux() {
+    EXT="$1"
+    shift
+    for f; do
+        ffmpeg -i "$f" -c copy -map 0 "${f%.*}.$EXT"
+    done
+}
+

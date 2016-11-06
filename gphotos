@@ -1,0 +1,56 @@
+#! /bin/sh
+
+die() {
+    [ -n "$1" ] && echo >&2 "$1"
+    cat >&2 <<EOF
+Usage: $0 [-j JOBS] [-o DIRECTORY] FILE [FILE...]
+Available options:
+  -j JOBS       number of jobs to run in parallel (default: 4)
+  -o DIRECTORY  set output directory (default: \$PWD)
+  -x OPTS       extra options to ffmpeg
+EOF
+    exit 1
+}
+
+process_file() {
+    [ ! -f "$1" ] && echo "File not found: $1" && return
+    infile="$(basename "$1")"
+    acodec=$(ffprobe -v error -i "$1" -show_streams -select_streams a:0 \
+        -show_entries stream=codec_name:stream_tags=0:stream_disposition=0 \
+        -of default=nokey=1:noprint_wrappers=1)
+    [ "$acodec" = "aac" ] && opts="-c:a copy" || opts="-c:a libfdk_aac -ac 2 -vbr 5" 
+    ffmpeg -v error -stats -i "$1" -c:v copy $opts $GPH_XOPTS -movflags faststart "$GPH_OUTDIR/${infile%.*}.mp4"
+    exit $?
+}
+
+[ -n "$GPH_PROCESS" ] && process_file "$1"
+
+GPH_OUTDIR="$PWD"
+GPH_PROCESS=1
+jobs=4
+
+while getopts ":j:o:x:" opt; do
+    case $opt in
+        j)
+            [ ! "$OPTARG" -ge 0 2>/dev/null ] && die "Invalid number of jobs: $OPTARG"
+            jobs="$OPTARG"
+            ;;
+        o)
+            [ ! -d "$OPTARG" ] && die "Invalid directory: $OPTARG"
+            GPH_OUTDIR="$OPTARG"
+            ;;
+        x)
+            GPH_XOPTS="$OPTARG"
+            ;;
+        \?)
+            die "Invalid option: -$opt"
+            ;;
+    esac
+done
+
+shift $((OPTIND - 1))
+[ "$#" -eq 0 ] && die "No input files specified"
+
+export GPH_OUTDIR GPH_XOPTS GPH_PROCESS
+
+echo "$(for m; do printf "%s\0" "$m"; done)" | xargs -0 -n1 -P$jobs -I{} $SHELL "$0" {}

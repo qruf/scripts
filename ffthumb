@@ -1,0 +1,70 @@
+#! /bin/sh
+
+#set -e
+
+progname=$(basename $0)
+
+usage="Usage: $progname [OPTIONS] FILE [FILE...]
+  -f  path to font file (overrides -F)
+  -F  font face (requires ffmpeg with --enable-fontconfig)
+  -t  number of thumbnails, WxH (default: 4x4) 
+  -w  width of thumbnails (default: 192)
+  -h  show this help and exit
+"
+
+die() {
+    [ -n "$1" ] && echo "Error: $1" || echo "$progname: ffmpeg thumbnail gallery generator"
+    echo "$usage"
+    exit 1
+}
+
+tile="4x4"
+width="192"
+
+while getopts ":f:F:t:w:h" opt; do
+    case $opt in
+        f)
+            font=$OPTARG
+            ;;
+        F)
+            font=${font:-$OPTARG}
+            ;;
+        t)
+            tile=$OPTARG
+            ;;
+        w)
+            width=$OPTARG
+            ;;
+        h)
+            die
+            ;;
+        \?)
+            die "Invalid option -$OPTARG"
+            ;;
+    esac
+done
+
+shift $((OPTIND - 1))
+
+awkscript=$(command -v ffthumb.awk)
+[ -z "$awkscript" ] && die "ffthumb.awk not found"
+[ "$#" -eq 0 ] && die "No filenames specified"
+[ -z "$font" ] && die "No font specified"
+
+thumbs=$(echo $tile | tr x \* | bc)
+
+for file; do
+    keyframes=$(ffprobe -skip_frame nokey -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of default=nokey=1:noprint_wrappers=1 "$file")
+    selection=$(($keyframes/320))
+    properties=$(ffprobe -v error -show_entries stream=codec_name,duration,channel_layout,nb_read_frames,width,height,pix_fmt,bit_rate:format=duration -of flat "$file" | gawk -v font="$font" -v filename="$(basename $file)" -f "$awkscript")
+
+    filtergraph="
+select=not(mod(n\,$selection)),
+scale=$width:-2,
+thumbnail=20,
+drawtext=fontcolor=white:shadowx=1:shadowy=1:text='%{pts\:hms}':fontfile=$font:x=w-text_w-2:y=h-text_h-2,
+tile=$tile:margin=4:padding=4,
+$properties"
+
+    ffmpeg -skip_frame nokey -i "$file" -vf "${filtergraph}" -frames:v 1 "$file".thumbs.png
+done

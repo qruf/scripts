@@ -1,0 +1,49 @@
+#! /bin/sh
+
+set -e
+
+usage() {
+    [ -n "$1" ] && echo >&2 "$1"
+    cat >&2 << EOF 
+usage: $(basename "$0") [OPTIONS] DIRECTORY...
+available options:
+  -d DIRECTORY  output directory
+  -f NAME       output filename (single input directory only)
+  -s SIZE       rar volume split size in MB
+EOF
+    exit 1
+}
+
+while getopts d:f:s: opt; do
+    case $opt in
+        d)
+            DIR="$OPTARG"
+            [ ! -d $DIR ] && usage "Invalid output directory: $OPTARG"
+            ;;
+        f)
+            OUT=$OPTARG
+            [ "${OUT##*.}" != "rar" ] && OUT="$OUT.rar"
+            ;;
+        s)
+            SIZE=$((OPTARG * 1024))
+            [ $SIZE -eq 0 ] && usage "Invalid size specified: $OPTARG"
+            SPLIT="-v${SIZE}k"
+            ;;
+        \?)
+            usage "Invalid option specified: $OPTARG"
+            ;;
+    esac
+done
+
+shift $((OPTIND - 1))
+
+[ $# -eq 0 ] && usage
+[ $# -gt 1 ] && [ -n "$OUT" ] && usage "-f specified with multiple input directories"
+
+for d; do
+    [ -z "$OUT" ] && OUT="$(basename "$d").rar"
+    [ -n "$DIR" ] && OUT="$DIR/$OUT"
+    rar a -ep1 -m0 -r -rr5 $SPLIT "$OUT" "$d"
+    OUT=
+done
+

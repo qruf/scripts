@@ -1,0 +1,57 @@
+#! /usr/bin/env lua
+
+local usage = [[
+dvdaspect [-pw] width height
+returns the correct display aspect ratio of a dvd after cropping
+
+options:
+ -p  input is pal
+ -w  input is widescreen
+
+examples:
+  $ dvdaspect 704 480
+  4:3
+  $ dvdaspect -pw 688 576
+  172:99 ]] 
+
+local rational = function(dec, acc)
+    acc = acc or 0.0001
+    local num, den
+    for i = 1, 1024 do
+        den, num = i, math.floor(dec * i + 0.5)
+        if math.abs(num / den - dec) < acc then
+            break
+        end
+    end
+    return num, den
+end
+
+local flags, args = {}, {}
+for i, v in ipairs(arg) do
+    if v:match("^-") then
+        for f in v:gmatch("%w") do
+            flags[f] = true
+        end
+    else
+        args[#args+1] = v
+    end
+end
+
+local w, h = tonumber(args[1]), tonumber(args[2])
+if not w or not h then
+    print(usage)
+    os.exit(1)
+end
+
+local region = flags.p and "pal" or "ntsc"
+local aspect = flags.w and "wide" or "full"
+
+local pars = {
+    ntsc = { wide = 40/33, full = 10/11 },
+    pal  = { wide = 16/11, full = 12/11 }
+}
+
+local dar = (w / h) * pars[region][aspect]
+local num, den = rational(dar)
+io.write(num, ":", den, "\n")
+

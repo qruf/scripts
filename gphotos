@@ -53,4 +53,4 @@ shift $((OPTIND - 1))
 
 export GPH_OUTDIR GPH_XOPTS GPH_PROCESS
 
-echo "$(for m; do printf "%s\0" "$m"; done)" | xargs -0 -n1 -P$jobs -I{} $SHELL "$0" {}
+for m; do printf '%s\0' "$m"; done | xargs -0 -n1 -P$jobs -I{} $SHELL "$0" {}

@@ -5,6 +5,7 @@ die() {
     cat >&2 <<EOF
 Usage: $0 [-j JOBS] [-o DIRECTORY] FILE [FILE...]
 Available options:
+  -f            move mp4 index to beginning of file
   -j JOBS       number of jobs to run in parallel (default: 4)
   -o DIRECTORY  set output directory (default: \$PWD)
   -x OPTS       extra options to ffmpeg
@@ -13,34 +14,37 @@ EOF
 }
 
 process_file() {
-    [ ! -f "$1" ] && echo "File not found: $1" && return
+    [ ! -f "$1" ] && echo "File not found: $1" && exit 1
     infile="$(basename "$1")"
     acodec=$(ffprobe -v error -i "$1" -show_streams -select_streams a:0 \
         -show_entries stream=codec_name:stream_tags=0:stream_disposition=0 \
         -of default=nokey=1:noprint_wrappers=1)
     [ "$acodec" = "aac" ] && opts="-c:a copy" || opts="-c:a libfdk_aac -ac 2 -vbr 5" 
-    ffmpeg -v error -stats -i "$1" -c:v copy $opts $GPH_XOPTS -movflags faststart "$GPH_OUTDIR/${infile%.*}.mp4"
+    ffmpeg -v error -stats -i "$1" -c:v copy $opts $_XOPTS $_FASTSTART "$_OUTDIR/${infile%.*}.mp4"
     exit $?
 }
 
-[ -n "$GPH_PROCESS" ] && process_file "$1"
+[ -n "$_PROCESS" ] && process_file "$1"
 
-GPH_OUTDIR="$PWD"
-GPH_PROCESS=1
-jobs=4
+JOBS=4
+_OUTDIR="$PWD"
+_PROCESS=1
 
-while getopts ":j:o:x:" opt; do
+while getopts ":fj:o:x:" opt; do
     case $opt in
+        f)
+            _FASTSTART="-movflags faststart"
+            ;;
         j)
             [ ! "$OPTARG" -ge 0 2>/dev/null ] && die "Invalid number of jobs: $OPTARG"
-            jobs="$OPTARG"
+            _JOBS="$OPTARG"
             ;;
         o)
             [ ! -d "$OPTARG" ] && die "Invalid directory: $OPTARG"
-            GPH_OUTDIR="$OPTARG"
+            _OUTDIR="$OPTARG"
             ;;
         x)
-            GPH_XOPTS="$OPTARG"
+            _XOPTS="$OPTARG"
             ;;
         \?)
             die "Invalid option: -$opt"
@@ -51,6 +55,6 @@ done
 shift $((OPTIND - 1))
 [ "$#" -eq 0 ] && die "No input files specified"
 
-export GPH_OUTDIR GPH_XOPTS GPH_PROCESS
+export _FASTSTART _OUTDIR _PROCESS _XOPTS 
 
-for m; do printf '%s\0' "$m"; done | xargs -0 -n1 -P$jobs -I{} $SHELL "$0" {}
+for m; do printf '%s\0' "$m"; done | xargs -0 -n1 -P$JOBS -I{} $SHELL "$0" {}
